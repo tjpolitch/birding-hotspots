@@ -95,6 +95,14 @@ function App() {
       .filter(id => id && id.startsWith("L"))
   );
 
+  //Completion calculation
+  const totalHotspots = hotspots.length;
+
+const completion =
+  totalHotspots > 0
+    ? Math.round((visitedHotspots.size / totalHotspots) * 100)
+    : 0;
+
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       <h2>Upload your eBird CSV</h2>
@@ -141,6 +149,10 @@ function App() {
       <p style={{ marginTop: '10px' }}>
         Visited hotspots (filtered): {visitedHotspots.size}
       </p>
+
+      <p style={{ fontWeight: 'bold' }}>
+  Completion: {completion}%
+</p>
 
       <Map
         hotspots={hotspots}
