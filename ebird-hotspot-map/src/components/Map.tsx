@@ -29,7 +29,9 @@ function createClusterCustomIcon(cluster: any, visitedHotspots: Set<string>) {
   let visitedCount = 0;
 
   markers.forEach((m: any) => {
-    const locId = m.options.locId;
+    const locId =
+      m.options.locId ||
+      m.options?.icon?.options?.locId;
     if (visitedHotspots.has(locId)) visitedCount++;
   });
 
@@ -69,19 +71,19 @@ function VisibleMarkers({ hotspots, visitedHotspots }: any) {
       {visible.map((h: any) => {
         const visited = visitedHotspots.has(h.locId);
 
-        return (
-          <Marker
-            key={h.locId}
-            position={[Number(h.lat), Number(h.lng)]}
-            icon={visited ? greenIcon : redIcon}
-            locId={h.locId}
-          >
-            <Popup>
-              <strong>{h.locName}</strong><br />
-              {visited ? "✅ Visited" : "❌ Not visited"}
-            </Popup>
-          </Marker>
-        );
+       return (
+  <Marker
+    key={h.locId}
+    position={[Number(h.lat), Number(h.lng)]}
+    icon={visited ? greenIcon : redIcon}
+    {...{ locId: h.locId }} // 👈 ADD THIS LINE
+  >
+    <Popup>
+      <strong>{h.locName}</strong><br />
+      {visited ? "✅ Visited" : "❌ Not visited"}
+    </Popup>
+  </Marker>
+);
       })}
     </>
   );
