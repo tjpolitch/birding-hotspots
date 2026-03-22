@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import { useState, useEffect } from 'react';
-import Map from './components/Map';
+import HotspotMap from './components/Map';
+import { useMemo } from 'react';
 
 function App() {
   const [fileName, setFileName] = useState<string>("");
@@ -38,14 +39,14 @@ function App() {
     async function fetchHotspots() {
       try {
         const res = await fetch(
-  "https://api.ebird.org/v2/ref/hotspot/AU-ACT?fmt=json",
-  {
-    headers: {
-      "X-eBirdApiToken": "o5mp766m7big",
-      "Accept": "application/json"
-    }
-  }
-);
+          "https://api.ebird.org/v2/ref/hotspot/AU-ACT?fmt=json",
+          {
+            headers: {
+              "X-eBirdApiToken": "o5mp766m7big",
+              "Accept": "application/json"
+            }
+          }
+        );
 
         const data = await res.json();
         setHotspots(data);
@@ -80,11 +81,40 @@ function App() {
     )
   ).sort();
 
-  // Filter data
+  // Filter CSV data
   const filteredData = data.filter(row => {
     return (
       (!selectedState || row["State/Province"] === selectedState) &&
       (!selectedCounty || row["County"] === selectedCounty)
+    );
+  });
+
+  // Build hotspot → region lookup
+const hotspotRegionMap = useMemo(() => {
+  const map: Map<string, { state: string; county: string }> = new Map();
+
+  data.forEach(row => {
+    const locId = row["Location ID"]?.trim();
+    const state = row["State/Province"]?.trim();
+    const county = row["County"]?.trim();
+
+    if (locId && locId.startsWith("L")) {
+      map.set(locId, { state, county });
+    }
+  });
+
+  return map;
+}, [data]);
+
+  // Filter hotspots (ONLY ones you've visited, matching filters)
+  const filteredHotspots = hotspots.filter(h => {
+    const region = hotspotRegionMap.get(h.locId);
+
+    if (!region) return false;
+
+    return (
+      (!selectedState || region.state === selectedState) &&
+      (!selectedCounty || region.county === selectedCounty)
     );
   });
 
@@ -95,13 +125,13 @@ function App() {
       .filter(id => id && id.startsWith("L"))
   );
 
-  //Completion calculation
-  const totalHotspots = hotspots.length;
+  // ✅ FIXED: completion uses filteredHotspots
+  const totalHotspots = filteredHotspots.length;
 
-const completion =
-  totalHotspots > 0
-    ? Math.round((visitedHotspots.size / totalHotspots) * 100)
-    : 0;
+  const completion =
+    totalHotspots > 0
+      ? Math.round((visitedHotspots.size / totalHotspots) * 100)
+      : 0;
 
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
@@ -151,13 +181,14 @@ const completion =
       </p>
 
       <p style={{ fontWeight: 'bold' }}>
-  Completion: {completion}%
-</p>
+        Completion: {completion}%
+      </p>
 
-      <Map
-        hotspots={hotspots}
-        visitedHotspots={visitedHotspots}
-      />
+      {/* ✅ FIXED: use filteredHotspots */}
+      <HotspotMap
+  hotspots={filteredHotspots}
+  visitedHotspots={visitedHotspots}
+/>
     </div>
   );
 }

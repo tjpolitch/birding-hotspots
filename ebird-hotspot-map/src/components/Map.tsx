@@ -2,7 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix missing marker icons (Vite issue)
+// Fix missing marker icons
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 
 const greenIcon = new L.Icon({
@@ -28,12 +28,16 @@ L.Icon.Default.mergeOptions({
 });
 
 type Props = {
-  hotspots: any[];
-  visitedHotspots: Set<string>;
+  hotspots?: any[];
+  visitedHotspots?: Set<string>;
 };
 
-export default function Map({ hotspots, visitedHotspots }: Props) {
-  console.log("Hotspots in map:", hotspots.length); // 👈 debug
+export default function HotspotMap(props: Props) {
+  // ✅ FULL SAFETY
+  if (!props) return null;
+
+  const hotspots = props.hotspots ?? [];
+  const visitedHotspots = props.visitedHotspots ?? new Set();
 
   return (
     <MapContainer
@@ -47,16 +51,16 @@ export default function Map({ hotspots, visitedHotspots }: Props) {
       />
 
       {hotspots.map((h) => {
-        console.log("Hotspot:", h);
+        if (!h || !h.lat || !h.lng) return null;
 
         const visited = visitedHotspots.has(h.locId);
 
         return (
           <Marker
-  key={h.locId}
-  position={[Number(h.lat), Number(h.lng)]}
-  icon={visitedHotspots.has(h.locId) ? greenIcon : redIcon}
->
+            key={h.locId}
+            position={[Number(h.lat), Number(h.lng)]}
+            icon={visited ? greenIcon : redIcon}
+          >
             <Popup>
               <strong>{h.locName}</strong><br />
               {visited ? "✅ Visited" : "❌ Not visited"}
