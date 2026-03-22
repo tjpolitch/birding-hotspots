@@ -1,7 +1,6 @@
 import Papa from 'papaparse';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import HotspotMap from './components/Map';
-import { useMemo } from 'react';
 
 function App() {
   const [fileName, setFileName] = useState<string>("");
@@ -29,12 +28,11 @@ function App() {
     });
   }
 
-  // Reset county when state changes
   useEffect(() => {
     setSelectedCounty("");
   }, [selectedState]);
 
-  // Fetch hotspots (ACT for now)
+  // Fetch hotspots
   useEffect(() => {
     async function fetchHotspots() {
       try {
@@ -60,16 +58,13 @@ function App() {
     fetchHotspots();
   }, []);
 
-  // State list
+  // Dropdowns
   const states = Array.from(
     new Set(
-      data
-        .map(row => row["State/Province"]?.trim())
-        .filter(Boolean)
+      data.map(row => row["State/Province"]?.trim()).filter(Boolean)
     )
   ).sort();
 
-  // County list (filtered by state)
   const counties = Array.from(
     new Set(
       data
@@ -81,36 +76,35 @@ function App() {
     )
   ).sort();
 
-  // Filter CSV data
-  const filteredData = data.filter(row => {
-    return (
-      (!selectedState || row["State/Province"] === selectedState) &&
-      (!selectedCounty || row["County"] === selectedCounty)
-    );
-  });
+  // Filter CSV
+  const filteredData = data.filter(row => (
+    (!selectedState || row["State/Province"] === selectedState) &&
+    (!selectedCounty || row["County"] === selectedCounty)
+  ));
 
-  // Build hotspot → region lookup
-const hotspotRegionMap = useMemo(() => {
-  const map: Map<string, { state: string; county: string }> = new Map();
+  // Build lookup
+  const hotspotRegionMap = useMemo(() => {
+    const map: Map<string, { state: string; county: string }> = new Map();
 
-  data.forEach(row => {
-    const locId = row["Location ID"]?.trim();
-    const state = row["State/Province"]?.trim();
-    const county = row["County"]?.trim();
+    data.forEach(row => {
+      const locId = row["Location ID"]?.trim();
+      const state = row["State/Province"]?.trim();
+      const county = row["County"]?.trim();
 
-    if (locId && locId.startsWith("L")) {
-      map.set(locId, { state, county });
-    }
-  });
+      if (locId && locId.startsWith("L")) {
+        map.set(locId, { state, county });
+      }
+    });
 
-  return map;
-}, [data]);
+    return map;
+  }, [data]);
 
-  // Filter hotspots (ONLY ones you've visited, matching filters)
+  // ✅ FIXED: show ALL hotspots (not just visited)
   const filteredHotspots = hotspots.filter(h => {
     const region = hotspotRegionMap.get(h.locId);
 
-    if (!region) return false;
+    // If never visited, still include it
+    if (!region) return true;
 
     return (
       (!selectedState || region.state === selectedState) &&
@@ -118,14 +112,14 @@ const hotspotRegionMap = useMemo(() => {
     );
   });
 
-  // Visited hotspots (filtered)
+  // Visited set
   const visitedHotspots = new Set(
     filteredData
       .map(row => row["Location ID"]?.trim())
       .filter(id => id && id.startsWith("L"))
   );
 
-  // ✅ FIXED: completion uses filteredHotspots
+  // ✅ FIXED completion
   const totalHotspots = filteredHotspots.length;
 
   const completion =
@@ -137,58 +131,43 @@ const hotspotRegionMap = useMemo(() => {
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       <h2>Upload your eBird CSV</h2>
 
-      <input
-        type="file"
-        accept=".csv"
-        onChange={handleFileUpload}
-      />
+      <input type="file" accept=".csv" onChange={handleFileUpload} />
 
       {fileName && <p>Uploaded: {fileName}</p>}
 
       <br /><br />
 
-      <label style={{ marginRight: '10px' }}>State/Province:</label>
+      <label>State/Province:</label>
       <select
         value={selectedState}
         onChange={(e) => setSelectedState(e.target.value)}
       >
         <option value="">All States</option>
         {states.map(state => (
-          <option key={state} value={state}>
-            {state}
-          </option>
+          <option key={state}>{state}</option>
         ))}
       </select>
 
       <br /><br />
 
-      <label style={{ marginRight: '10px' }}>County:</label>
+      <label>County:</label>
       <select
         value={selectedCounty}
         onChange={(e) => setSelectedCounty(e.target.value)}
-        disabled={!data.length}
       >
         <option value="">All Counties</option>
         {counties.map(county => (
-          <option key={county} value={county}>
-            {county}
-          </option>
+          <option key={county}>{county}</option>
         ))}
       </select>
 
-      <p style={{ marginTop: '10px' }}>
-        Visited hotspots (filtered): {visitedHotspots.size}
-      </p>
+      <p>Visited hotspots: {visitedHotspots.size}</p>
+      <p><strong>Completion: {completion}%</strong></p>
 
-      <p style={{ fontWeight: 'bold' }}>
-        Completion: {completion}%
-      </p>
-
-      {/* ✅ FIXED: use filteredHotspots */}
       <HotspotMap
-  hotspots={filteredHotspots}
-  visitedHotspots={visitedHotspots}
-/>
+        hotspots={filteredHotspots}
+        visitedHotspots={visitedHotspots}
+      />
     </div>
   );
 }
