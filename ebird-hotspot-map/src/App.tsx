@@ -8,6 +8,7 @@ function App() {
   const [selectedState, setSelectedState] = useState("AU-ACT");
   const [selectedCounty, setSelectedCounty] = useState("");
   const [hotspots, setHotspots] = useState<any[]>([]);
+  const [showUnvisitedOnly, setShowUnvisitedOnly] = useState(false);
 
   function handleFileUpload(event: any) {
     const file = event.target.files?.[0];
@@ -114,10 +115,23 @@ function App() {
       <p>Visited hotspots: {visitedHotspots.size}</p>
       <p><strong>Completion: {completion}%</strong></p>
 
+      <label style={{ display: 'block', marginTop: '10px' }}>
+        <input
+          type="checkbox"
+          checked={showUnvisitedOnly}
+          onChange={(e) => setShowUnvisitedOnly(e.target.checked)}
+        />
+        {' '}Show only unvisited hotspots
+      </label>
+
       <HotspotMap
-        hotspots={hotspots}
+        hotspots={
+          showUnvisitedOnly
+            ? hotspots.filter(h => !visitedHotspots.has(h.locId))
+            : hotspots
+        }
         visitedHotspots={visitedHotspots}
-      />
+/>
     </div>
   );
 }
