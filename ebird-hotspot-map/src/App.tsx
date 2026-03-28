@@ -91,49 +91,81 @@ function App() {
       : 0;
 
   return (
-    <div style={{ padding: 20, maxWidth: 800, margin: '0 auto' }}>
-      <h2>Upload your eBird CSV</h2>
+  <div style={{ padding: '16px', height: '100vh', boxSizing: 'border-box' }}>
+    
+    <div style={{ display: 'flex', height: '100%' }}>
 
-      <input type="file" accept=".csv" onChange={handleFileUpload} />
-      {fileName && <p>Uploaded: {fileName}</p>}
+      {/* SIDEBAR */}
+      <div style={{
+        width: '300px',
+        padding: '20px',
+        background: '#1e1e1e',
+        color: 'white',
+        borderRadius: '8px'
+      }}>
+        <h2>eBird Hotspots</h2>
 
-      <br /><br />
+        <input type="file" accept=".csv" onChange={handleFileUpload} />
+        {fileName && <p>Uploaded: {fileName}</p>}
 
-      <label>State:</label>
-      <select value={selectedState} onChange={e => setSelectedState(e.target.value)}>
-        {states.map(s => <option key={s}>{s}</option>)}
-      </select>
+        <br />
 
-      <br /><br />
+        <label>State:</label>
+        <select
+          value={selectedState}
+          onChange={(e) => setSelectedState(e.target.value)}
+          style={{ width: '100%' }}
+        >
+          {states.map(s => <option key={s}>{s}</option>)}
+        </select>
 
-      <label>County:</label>
-      <select value={selectedCounty} onChange={e => setSelectedCounty(e.target.value)}>
-        <option value="">All</option>
-        {counties.map(c => <option key={c}>{c}</option>)}
-      </select>
+        <br /><br />
 
-      <p>Visited hotspots: {visitedHotspots.size}</p>
-      <p><strong>Completion: {completion}%</strong></p>
+        <label>County:</label>
+        <select
+          value={selectedCounty}
+          onChange={(e) => setSelectedCounty(e.target.value)}
+          style={{ width: '100%' }}
+        >
+          <option value="">All</option>
+          {counties.map(c => <option key={c}>{c}</option>)}
+        </select>
 
-      <label style={{ display: 'block', marginTop: '10px' }}>
-        <input
-          type="checkbox"
-          checked={showUnvisitedOnly}
-          onChange={(e) => setShowUnvisitedOnly(e.target.checked)}
+        <br /><br />
+
+        <p>Visited: {visitedHotspots.size}</p>
+        <p><strong>Completion: {completion}%</strong></p>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={showUnvisitedOnly}
+            onChange={(e) => setShowUnvisitedOnly(e.target.checked)}
+          />
+          {' '}Only unvisited
+        </label>
+      </div>
+
+      {/* GAP BETWEEN SIDEBAR + MAP */}
+      <div style={{ width: '16px' }} />
+
+      {/* MAP AREA */}
+      <div style={{ flex: 1, borderRadius: '8px', overflow: 'hidden' }}>
+        <HotspotMap
+          hotspots={
+            showUnvisitedOnly
+              ? hotspots.filter(h => !visitedHotspots.has(h.locId))
+              : hotspots
+          }
+          visitedHotspots={visitedHotspots}
         />
-        {' '}Show only unvisited hotspots
-      </label>
+      </div>
 
-      <HotspotMap
-        hotspots={
-          showUnvisitedOnly
-            ? hotspots.filter(h => !visitedHotspots.has(h.locId))
-            : hotspots
-        }
-        visitedHotspots={visitedHotspots}
-/>
+
+
     </div>
-  );
+  </div>
+);
 }
 
 export default App;

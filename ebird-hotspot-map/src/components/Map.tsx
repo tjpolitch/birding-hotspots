@@ -99,7 +99,7 @@ export default function HotspotMap({ hotspots = [], visitedHotspots = new Set() 
     <MapContainer
       center={[-35.28, 149.13]}
       zoom={6}
-      style={{ height: '500px', width: '100%', marginTop: '20px' }}
+      style={{ height: '100%', width: '100%' }}
     >
       <TileLayer
         attribution="&copy; OpenStreetMap"
