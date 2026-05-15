@@ -196,10 +196,10 @@ function AllMarkers({
           // In target mode, icon choice reflects species status:
           //  - species recorded here     → green
           //  - target (visited, missing) → amber/target
-          //  - never visited             → muted gray dot
+          //  - never visited             → red (same as normal mode)
           // Otherwise just the regular visited/unvisited dots.
           const icon = targetMode
-            ? hasSpeciesHere ? greenIcon : isTarget ? targetIcon : mutedIcon
+            ? hasSpeciesHere ? greenIcon : isTarget ? targetIcon : redIcon
             : visited ? greenIcon : redIcon;
           return (
             <Marker

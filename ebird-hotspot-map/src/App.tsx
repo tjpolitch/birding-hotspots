@@ -830,8 +830,8 @@ function App() {
           </div>
         )}
 
-        {/* Target species */}
-        {fileLoaded && (
+        {/* Target species — only shown when target mode is enabled in Settings. */}
+        {fileLoaded && targetMode && (
           <div className="section">
             <p className="section-label">Target species</p>
             <select
@@ -889,12 +889,18 @@ function App() {
         <div className="section" style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
           <p className="section-label">Legend</p>
           <div className="legend">
-            {targetMode && selectedTargetSpecies ? (
-              <>
-                <div className="legend-item"><span className="legend-dot visited" /> Recorded here</div>
-                <div className="legend-item"><span className="legend-dot target" /> Target (visited, missing)</div>
-                <div className="legend-item"><span className="legend-dot unvisited" /> Not visited</div>
-              </>
+            {targetMode ? (
+              selectedTargetSpecies ? (
+                <>
+                  <div className="legend-item"><span className="legend-dot visited" /> Visited &amp; recorded</div>
+                  <div className="legend-item"><span className="legend-dot target" /> Visited, not recorded</div>
+                  <div className="legend-item"><span className="legend-dot unvisited" /> Not visited</div>
+                </>
+              ) : (
+                <p className="empty-hint" style={{ margin: 0 }}>
+                  Pick a target species to color-code hotspots.
+                </p>
+              )
             ) : (
               <>
                 <div className="legend-item"><span className="legend-dot visited" /> Visited</div>
