@@ -974,3 +974,90 @@
 .popup-link:hover {
   color: var(--accent-hover);
 }
+
+/* ---------- Mobile sidebar toggle ----------
+   The sidebar covers most of a phone screen, so on narrow viewports we
+   collapse it off-canvas and surface a hamburger button + backdrop. */
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .app {
+    padding: 0;
+    gap: 0;
+  }
+
+  /* Sidebar slides over the map instead of pushing it. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(85vw, 320px);
+    border-radius: 0;
+    border-right: 1px solid var(--border);
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    z-index: 1100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    transition: transform 0.22s ease-out;
+  }
+
+  .sidebar.sidebar-closed {
+    transform: translateX(-105%);
+    box-shadow: none;
+  }
+
+  .map-wrapper {
+    border-radius: 0;
+    border: none;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1200;
+    width: 40px;
+    height: 40px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+  }
+
+  .sidebar-toggle:active {
+    transform: scale(0.95);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1050;
+    animation: backdrop-fade-in 0.2s ease-out;
+  }
+
+  @keyframes backdrop-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Nudge map toasts away from the top-left toggle button so they don't
+     overlap on narrow screens. */
+  .map-toast {
+    top: 60px;
+  }
+}

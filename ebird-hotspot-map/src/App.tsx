@@ -71,6 +71,13 @@ function App() {
     { south: number; north: number; west: number; east: number } | null
   >(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // On mobile the sidebar covers the map; this toggle lets the user hide it.
+  // Default state matches whether the viewport is wide enough to show both
+  // panels side-by-side (desktop = open, mobile = closed).
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth > 768;
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [isPickingOnMap, setIsPickingOnMap] = useState(false);
@@ -730,7 +737,7 @@ function App() {
           </div>
         </div>
       )}
-      <aside className="sidebar">
+      <aside className={`sidebar${isSidebarOpen ? '' : ' sidebar-closed'}`}>
         {/* Brand */}
         <div className="brand">
           <div className="brand-icon" aria-hidden="true">
@@ -1245,6 +1252,37 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mobile-only sidebar toggle. Hidden on desktop via CSS. */}
+      <button
+        type="button"
+        className="sidebar-toggle"
+        aria-label={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+        aria-expanded={isSidebarOpen}
+        onClick={() => setIsSidebarOpen((open) => !open)}
+      >
+        {isSidebarOpen ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        )}
+      </button>
+
+      {/* Tap-outside backdrop while the sidebar is open on mobile. */}
+      {isSidebarOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        />
       )}
 
       <main className="map-wrapper">
