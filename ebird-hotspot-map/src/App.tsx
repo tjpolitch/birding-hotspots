@@ -5,10 +5,18 @@ import './App.css';
 
 const SETTINGS_KEY = 'ebird:settings';
 const STORED_CSV_KEY = 'ebird:lastCsv';
+const TOKEN_KEY = 'ebird:apiToken';
 
-// eBird API token. Set VITE_EBIRD_TOKEN in `.env.local` for local dev, and
-// in your host's environment variable settings (Vercel/Netlify) for prod.
-const EBIRD_TOKEN = import.meta.env.VITE_EBIRD_TOKEN as string;
+// Each user brings their own eBird API token. We read from localStorage and
+// fall back to VITE_EBIRD_TOKEN for local dev convenience, but production
+// builds should ship without an env-var token so every visitor uses their own.
+function loadStoredToken(): string {
+  try {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (stored) return stored;
+  } catch { /* ignore */ }
+  return (import.meta.env.VITE_EBIRD_TOKEN as string) ?? '';
+}
 
 type StoredSettings = {
   showUnvisitedOnly?: boolean;
@@ -43,6 +51,7 @@ function App() {
   const [autoRestoreCSV, setAutoRestoreCSV] = useState(initialSettings.autoRestoreCSV ?? true);
   const [targetMode, setTargetMode] = useState(initialSettings.targetMode ?? true);
   const [selectedTargetSpecies, setSelectedTargetSpecies] = useState("");
+  const [ebirdToken, setEbirdToken] = useState(loadStoredToken);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
@@ -91,6 +100,14 @@ function App() {
     setIsPickingOnMap(false);
   }
 
+  // Persist the eBird token to localStorage whenever it changes.
+  useEffect(() => {
+    try {
+      if (ebirdToken) localStorage.setItem(TOKEN_KEY, ebirdToken);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch { /* ignore */ }
+  }, [ebirdToken]);
+
   // Persist setting toggles whenever they change.
   useEffect(() => {
     try {
@@ -106,15 +123,20 @@ function App() {
   // Country code prefix from a region code, e.g. "AU-NSW" -> "AU".
   const countryOf = (regionCode: string) => regionCode?.split("-")[0] ?? "";
 
-  // Fetch the eBird country list once on mount so we can display friendly names.
+  // Fetch the eBird country list once we have a token so we can display
+  // friendly names. Re-runs when the user enters/updates their token.
   useEffect(() => {
+    if (!ebirdToken) {
+      setCountryList([]);
+      return;
+    }
     async function fetchCountries() {
       try {
         const res = await fetch(
           "https://api.ebird.org/v2/ref/region/list/country/world",
           {
             headers: {
-              "X-eBirdApiToken": EBIRD_TOKEN,
+              "X-eBirdApiToken": ebirdToken,
               "Accept": "application/json",
             },
           }
@@ -127,13 +149,13 @@ function App() {
       }
     }
     fetchCountries();
-  }, []);
+  }, [ebirdToken]);
 
   // Fetch the eBird subnational1 list for the currently selected country, so
   // we can display friendly names (e.g. "New South Wales") in the dropdown
   // instead of raw codes (e.g. "AU-NSW").
   useEffect(() => {
-    if (!selectedCountry) {
+    if (!selectedCountry || !ebirdToken) {
       setRegionList([]);
       return;
     }
@@ -143,7 +165,7 @@ function App() {
           `https://api.ebird.org/v2/ref/region/list/subnational1/${selectedCountry}`,
           {
             headers: {
-              "X-eBirdApiToken": EBIRD_TOKEN,
+              "X-eBirdApiToken": ebirdToken,
               "Accept": "application/json",
             },
           }
@@ -159,7 +181,7 @@ function App() {
       }
     }
     fetchRegions();
-  }, [selectedCountry]);
+  }, [selectedCountry, ebirdToken]);
 
   function parseCSVText(name: string, text: string) {
     setFileName(name);
@@ -296,7 +318,7 @@ function App() {
 
   // 🌍 Dynamic hotspot fetch
   useEffect(() => {
-    if (!selectedRegion) {
+    if (!selectedRegion || !ebirdToken) {
       setHotspots([]);
       setSubnational2([]);
       return;
@@ -309,7 +331,7 @@ function App() {
           `https://api.ebird.org/v2/ref/hotspot/${selectedRegion}?fmt=json`,
           {
             headers: {
-              "X-eBirdApiToken": EBIRD_TOKEN,
+              "X-eBirdApiToken": ebirdToken,
               "Accept": "application/json"
             }
           }
@@ -333,7 +355,7 @@ function App() {
           `https://api.ebird.org/v2/ref/region/list/subnational2/${selectedRegion}`,
           {
             headers: {
-              "X-eBirdApiToken": EBIRD_TOKEN,
+              "X-eBirdApiToken": ebirdToken,
               "Accept": "application/json",
             },
           }
@@ -349,7 +371,7 @@ function App() {
       }
     }
     fetchSubnational2();
-  }, [selectedRegion]);
+  }, [selectedRegion, ebirdToken]);
 
   // Dropdowns
   const countryNameByCode = useMemo(() => {
@@ -474,15 +496,37 @@ function App() {
     return out;
   }, [data]);
 
-  // Sorted unique species names from the full CSV — drives the target picker.
+  // Clear the target species if it's no longer in the current scope (e.g. the
+  // user switched regions). Prevents the map from highlighting based on a
+  // stale species that the dropdown can no longer show.
+  useEffect(() => {
+    if (!selectedTargetSpecies) return;
+    const stillVisible = data.some(r => {
+      if (r["Common Name"]?.trim() !== selectedTargetSpecies) return false;
+      const regionCode = r["State/Province"]?.trim();
+      if (selectedCountry && countryOf(regionCode ?? "") !== selectedCountry) return false;
+      if (selectedRegion && regionCode !== selectedRegion) return false;
+      if (selectedSubregion && r["County"]?.trim() !== selectedSubregion) return false;
+      return true;
+    });
+    if (!stillVisible) setSelectedTargetSpecies("");
+  }, [selectedTargetSpecies, selectedCountry, selectedRegion, selectedSubregion, data]);
+
+  // Sorted unique species names scoped to the current country/region/subregion
+  // selection — drives the target picker. Filtering here keeps the list to
+  // species the user has logged inside the area they're looking at.
   const allSpecies = useMemo(() => {
     const set = new Set<string>();
     for (const r of data) {
+      const regionCode = r["State/Province"]?.trim();
+      if (selectedCountry && countryOf(regionCode ?? "") !== selectedCountry) continue;
+      if (selectedRegion && regionCode !== selectedRegion) continue;
+      if (selectedSubregion && r["County"]?.trim() !== selectedSubregion) continue;
       const name = r["Common Name"]?.trim();
       if (name) set.add(name);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [data]);
+  }, [data, selectedCountry, selectedRegion, selectedSubregion]);
 
   // Map of species name -> set of locIds where the user has recorded it.
   // Used to figure out which scoped hotspots are "targets" (visited, no record).
@@ -571,6 +615,17 @@ function App() {
     () => new Set(targetHotspotsList.map(h => h.locId)),
     [targetHotspotsList]
   );
+
+  // # of in-scope hotspots where the user has recorded the target species —
+  // drives the Stats box when target mode is on.
+  const targetRecordedCount = useMemo(() => {
+    if (!selectedTargetSpecies) return 0;
+    return hotspotsInScope.filter(h => speciesLocs.has(h.locId)).length;
+  }, [selectedTargetSpecies, hotspotsInScope, speciesLocs]);
+
+  const targetCoverage = hotspotsInScope.length > 0
+    ? Math.round((targetRecordedCount / hotspotsInScope.length) * 100)
+    : 0;
 
   const fileLoaded = Boolean(fileName);
 
@@ -750,25 +805,44 @@ function App() {
           </select>
         </div>
 
-        {/* Stats */}
+        {/* Stats — swaps to species-relative numbers when target mode is on. */}
         {fileLoaded && (
           <div className="stats">
-            <div className="stat-row">
-              <span className="stat-label">Visited</span>
-              <span className="stat-value">{visitedCount}<span style={{ color: 'var(--text-dim)', fontWeight: 400 }}> / {hotspotsInScope.length}</span></span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Completion</span>
-              <span className="stat-value" style={{ color: 'var(--accent)' }}>{completion}%</span>
-            </div>
-            <div className="progress" aria-hidden="true">
-              <div className="progress-bar" style={{ width: `${completion}%` }} />
-            </div>
+            {targetMode ? (
+              <>
+                <div className="stat-row">
+                  <span className="stat-label">Recorded</span>
+                  <span className="stat-value">{targetRecordedCount}<span style={{ color: 'var(--text-dim)', fontWeight: 400 }}> / {hotspotsInScope.length}</span></span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Coverage</span>
+                  <span className="stat-value" style={{ color: 'var(--accent)' }}>{targetCoverage}%</span>
+                </div>
+                <div className="progress" aria-hidden="true">
+                  <div className="progress-bar" style={{ width: `${targetCoverage}%` }} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-row">
+                  <span className="stat-label">Visited</span>
+                  <span className="stat-value">{visitedCount}<span style={{ color: 'var(--text-dim)', fontWeight: 400 }}> / {hotspotsInScope.length}</span></span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Completion</span>
+                  <span className="stat-value" style={{ color: 'var(--accent)' }}>{completion}%</span>
+                </div>
+                <div className="progress" aria-hidden="true">
+                  <div className="progress-bar" style={{ width: `${completion}%` }} />
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        {/* Nearby unvisited */}
-        {fileLoaded && (
+        {/* Nearby unvisited — hidden when target mode is active so the sidebar
+            focuses on the target-species workflow. */}
+        {fileLoaded && !targetMode && (
           <div className="section">
             <p className="section-label">Nearby unvisited</p>
             <div className="nearby-actions">
@@ -890,17 +964,11 @@ function App() {
           <p className="section-label">Legend</p>
           <div className="legend">
             {targetMode ? (
-              selectedTargetSpecies ? (
-                <>
-                  <div className="legend-item"><span className="legend-dot visited" /> Visited &amp; recorded</div>
-                  <div className="legend-item"><span className="legend-dot target" /> Visited, not recorded</div>
-                  <div className="legend-item"><span className="legend-dot unvisited" /> Not visited</div>
-                </>
-              ) : (
-                <p className="empty-hint" style={{ margin: 0 }}>
-                  Pick a target species to color-code hotspots.
-                </p>
-              )
+              <>
+                <div className="legend-item"><span className="legend-dot visited" /> Visited &amp; recorded</div>
+                <div className="legend-item"><span className="legend-dot target" /> Visited &amp; not recorded</div>
+                <div className="legend-item"><span className="legend-dot unvisited" /> Not visited</div>
+              </>
             ) : (
               <>
                 <div className="legend-item"><span className="legend-dot visited" /> Visited</div>
@@ -943,10 +1011,41 @@ function App() {
               </button>
             </div>
             <div className="modal-body">
+              <div className="setting-row setting-row-stack">
+                <div>
+                  <div className="setting-title">eBird API token</div>
+                  <div className="setting-desc">
+                    Required to load hotspots and region data. Get a free token at{' '}
+                    <a
+                      href="https://ebird.org/api/keygen"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="setting-link"
+                    >
+                      ebird.org/api/keygen
+                    </a>
+                    . Stored locally in your browser — never sent anywhere except eBird.
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  className="setting-input"
+                  placeholder="Paste your eBird API token"
+                  value={ebirdToken}
+                  onChange={(e) => setEbirdToken(e.target.value.trim())}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </div>
               <div className="setting-row">
                 <div>
                   <div className="setting-title">Only show unvisited</div>
-                  <div className="setting-desc">Hide hotspots you've already birded.</div>
+                  <div className="setting-desc">
+                    Hide hotspots you've already birded.
+                    {targetMode && (
+                      <span style={{ color: 'var(--text-dim)' }}> Has no effect in target species mode.</span>
+                    )}
+                  </div>
                 </div>
                 <label className="toggle">
                   <input
@@ -960,7 +1059,7 @@ function App() {
               <div className="setting-row">
                 <div>
                   <div className="setting-title">Target species mode</div>
-                  <div className="setting-desc">Recolor markers by your selected target species: green where you've recorded it, amber where you've birded but haven't, muted elsewhere.</div>
+                  <div className="setting-desc">Pick a species you want to chase. The map highlights hotspots in scope where you've birded but haven't yet recorded it — likely places to try next.</div>
                 </div>
                 <label className="toggle">
                   <input
@@ -1026,9 +1125,41 @@ function App() {
             </div>
           </div>
         )}
+        {!ebirdToken && (
+          <div className="map-toast map-toast-warn" role="status" style={{ pointerEvents: 'auto' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>
+              Add your eBird API token to load hotspots.{' '}
+              <button
+                type="button"
+                className="setting-link"
+                onClick={() => setIsSettingsOpen(true)}
+              >
+                Open Settings
+              </button>
+            </span>
+          </div>
+        )}
+        {ebirdToken && fileLoaded && targetMode && !selectedTargetSpecies && (
+          <div className="map-toast" role="status">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>Pick a target species to highlight matching hotspots.</span>
+          </div>
+        )}
         <HotspotMap
           hotspots={
-            showUnvisitedOnly
+            // In target mode, "only show unvisited" is ignored — filtering
+            // away visited hotspots would hide the green/amber categories
+            // that the mode is designed to surface.
+            showUnvisitedOnly && !targetMode
               ? hotspotsInScope.filter(h => !visitedHotspots.has(h.locId))
               : hotspotsInScope
           }
@@ -1040,7 +1171,7 @@ function App() {
           isPickingOnMap={isPickingOnMap}
           onMapClick={handleMapClick}
           focusHotspot={focusHotspot}
-          targetMode={targetMode && Boolean(selectedTargetSpecies)}
+          targetMode={targetMode}
           targetSpecies={selectedTargetSpecies}
           targetLocIds={targetLocIds}
           speciesLocIds={speciesLocs}
