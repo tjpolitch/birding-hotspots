@@ -70,48 +70,7 @@
   position: relative;
 }
 
-/* ---------- Map loading indicator ---------- */
-.map-loading {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 500; /* above leaflet tiles but below modal/drop overlays */
-  pointer-events: none;
-}
-
-.map-loading-bar {
-  height: 3px;
-  background: var(--surface-hover);
-  overflow: hidden;
-  position: relative;
-}
-
-.map-loading-bar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: indeterminate 1.2s linear infinite;
-}
-
-.map-loading-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px;
-  padding: 6px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text-muted);
-  box-shadow: var(--shadow-sm);
-}
-
+/* ---------- Spinner ---------- */
 .spinner {
   width: 12px;
   height: 12px;
@@ -119,9 +78,14 @@
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
-/* Target-mode prompt overlayed on the map when no species is picked yet. */
+/* ---------- Map toast ----------
+   Unified pill shown over the top-middle of the map. Used for:
+     • loading state (spinner inside)
+     • target-mode prompt (info icon)
+     • no-token warning (uses .map-toast-warn modifier) */
 .map-toast {
   position: absolute;
   top: 16px;
@@ -133,7 +97,7 @@
   gap: 8px;
   padding: 8px 14px;
   background: var(--surface);
-  border: 1px solid rgba(245, 158, 11, 0.45);
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 13px;
   color: var(--text);
@@ -159,11 +123,6 @@
 @keyframes toast-fade-in {
   from { opacity: 0; transform: translate(-50%, -6px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
-}
-
-@keyframes indeterminate {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(350%); }
 }
 
 @keyframes spin {

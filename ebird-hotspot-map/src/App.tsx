@@ -1249,12 +1249,9 @@ function App() {
 
       <main className="map-wrapper">
         {isLoadingHotspots && (
-          <div className="map-loading" role="status" aria-live="polite">
-            <div className="map-loading-bar" />
-            <div className="map-loading-text">
-              <span className="spinner" aria-hidden="true" />
-              Loading hotspots…
-            </div>
+          <div className="map-toast" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            <span>Loading hotspots…</span>
           </div>
         )}
         {!ebirdToken && (
