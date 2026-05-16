@@ -70,6 +70,13 @@
   position: relative;
 }
 
+/* Hide the default top-left Leaflet zoom control; we render our own in the
+   top-right via <ZoomControl position="topright" /> so it doesn't collide
+   with the mobile sidebar toggle button. */
+.leaflet-top.leaflet-left .leaflet-control-zoom {
+  display: none;
+}
+
 /* ---------- Spinner ---------- */
 .spinner {
   width: 12px;

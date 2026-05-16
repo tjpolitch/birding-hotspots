@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
@@ -364,7 +364,12 @@ export default function HotspotMap({
       zoom={6}
       style={{ height: '100%', width: '100%' }}
       className={isPickingOnMap ? 'picking-on-map' : ''}
+      // Disable the default top-left zoom buttons; we render our own in the
+      // top-right so they don't collide with the mobile sidebar toggle.
+      zoomControl={false}
     >
+      <ZoomControl position="topright" />
+
       {/* key forces Leaflet to swap the tile source when the user adds or
           removes their Stadia key — otherwise the URL change isn't picked up. */}
       <TileLayer
