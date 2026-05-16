@@ -58,7 +58,7 @@ function App() {
   const [showUnvisitedOnly, setShowUnvisitedOnly] = useState(initialSettings.showUnvisitedOnly ?? false);
   const [autoPanToSelection, setAutoPanToSelection] = useState(initialSettings.autoPanToSelection ?? true);
   const [autoRestoreCSV, setAutoRestoreCSV] = useState(initialSettings.autoRestoreCSV ?? true);
-  const [targetMode, setTargetMode] = useState(initialSettings.targetMode ?? true);
+  const [targetMode, setTargetMode] = useState(initialSettings.targetMode ?? false);
   const [selectedTargetSpecies, setSelectedTargetSpecies] = useState("");
   const [ebirdToken, setEbirdToken] = useState(loadStoredToken);
   // Stadia Maps API key — when set, we use their English-everywhere tiles
