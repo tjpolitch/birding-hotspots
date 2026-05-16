@@ -747,7 +747,7 @@ function App() {
             </svg>
           </div>
           <div style={{ flex: 1 }}>
-            <h1 className="brand-title">eBird Hotspots</h1>
+            <h1 className="brand-title">Birding Hotspots</h1>
             <p className="brand-subtitle">Track your birding progress</p>
           </div>
           <button
