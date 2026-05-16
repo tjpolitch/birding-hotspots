@@ -827,18 +827,22 @@ function App() {
             }}
             disabled={!fileLoaded || (regions.visited.length + regions.unvisited.length) === 0}
           >
-            {regions.visited.length === 0 && regions.unvisited.length === 0 && (
+            {regions.visited.length === 0 && regions.unvisited.length === 0 ? (
               <option value="">—</option>
-            )}
-            {regions.visited.length > 0 && (
-              <optgroup label="Visited">
-                {regions.visited.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
-              </optgroup>
-            )}
-            {regions.unvisited.length > 0 && (
-              <optgroup label="Not visited">
-                {regions.unvisited.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
-              </optgroup>
+            ) : (
+              <>
+                <option value="">All regions</option>
+                {regions.visited.length > 0 && (
+                  <optgroup label="Visited">
+                    {regions.visited.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
+                  </optgroup>
+                )}
+                {regions.unvisited.length > 0 && (
+                  <optgroup label="Not visited">
+                    {regions.unvisited.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
+                  </optgroup>
+                )}
+              </>
             )}
           </select>
         </div>
