@@ -236,10 +236,12 @@ function FlyToBounds({
   hotspots,
   flyKey,
   enabled,
+  fallbackBounds,
 }: {
   hotspots: any[];
   flyKey: string;
   enabled: boolean;
+  fallbackBounds?: { south: number; north: number; west: number; east: number } | null;
 }) {
   const map = useMap();
   const lastFlownKey = useRef<string>('');
@@ -247,27 +249,40 @@ function FlyToBounds({
   useEffect(() => {
     if (!enabled) return;
     if (flyKey === lastFlownKey.current) return;
-    if (!hotspots || hotspots.length === 0) return;
 
-    const lats: number[] = [];
-    const lngs: number[] = [];
-    for (const h of hotspots) {
-      const lat = Number(h.lat);
-      const lng = Number(h.lng);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        lats.push(lat);
-        lngs.push(lng);
+    // Prefer hotspot bounds; otherwise fly to the country-level fallback if one
+    // was provided (e.g. user picked a country but no region yet).
+    if (hotspots && hotspots.length > 0) {
+      const lats: number[] = [];
+      const lngs: number[] = [];
+      for (const h of hotspots) {
+        const lat = Number(h.lat);
+        const lng = Number(h.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          lats.push(lat);
+          lngs.push(lng);
+        }
+      }
+      if (lats.length > 0) {
+        const bounds = L.latLngBounds(
+          [Math.min(...lats), Math.min(...lngs)],
+          [Math.max(...lats), Math.max(...lngs)]
+        );
+        map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8, maxZoom: 13 });
+        lastFlownKey.current = flyKey;
+        return;
       }
     }
-    if (lats.length === 0) return;
 
-    const bounds = L.latLngBounds(
-      [Math.min(...lats), Math.min(...lngs)],
-      [Math.max(...lats), Math.max(...lngs)]
-    );
-    map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8, maxZoom: 13 });
-    lastFlownKey.current = flyKey;
-  }, [flyKey, hotspots, enabled, map]);
+    if (fallbackBounds) {
+      const bounds = L.latLngBounds(
+        [fallbackBounds.south, fallbackBounds.west],
+        [fallbackBounds.north, fallbackBounds.east]
+      );
+      map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8, maxZoom: 13 });
+      lastFlownKey.current = flyKey;
+    }
+  }, [flyKey, hotspots, enabled, map, fallbackBounds]);
 
   return null;
 }
@@ -311,6 +326,7 @@ type Props = {
   targetSpecies?: string;
   targetLocIds?: Set<string>;
   speciesLocIds?: Set<string>;
+  fallbackBounds?: { south: number; north: number; west: number; east: number } | null;
 };
 
 export default function HotspotMap({
@@ -327,6 +343,7 @@ export default function HotspotMap({
   targetSpecies = '',
   targetLocIds = new Set(),
   speciesLocIds = new Set(),
+  fallbackBounds = null,
 }: Props) {
   return (
     <MapContainer
@@ -366,6 +383,7 @@ export default function HotspotMap({
         hotspots={hotspots}
         flyKey={flyToBoundsKey}
         enabled={flyToEnabled}
+        fallbackBounds={fallbackBounds}
       />
 
       <ClickCapture enabled={isPickingOnMap} onPick={onMapClick} />

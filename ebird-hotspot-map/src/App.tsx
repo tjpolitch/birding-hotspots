@@ -52,6 +52,11 @@ function App() {
   const [targetMode, setTargetMode] = useState(initialSettings.targetMode ?? true);
   const [selectedTargetSpecies, setSelectedTargetSpecies] = useState("");
   const [ebirdToken, setEbirdToken] = useState(loadStoredToken);
+  // Bounding box for the currently selected country, fetched from OpenStreetMap
+  // Nominatim so the map can fly there even before a region is picked.
+  const [countryBounds, setCountryBounds] = useState<
+    { south: number; north: number; west: number; east: number } | null
+  >(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
@@ -125,11 +130,11 @@ function App() {
 
   // Fetch the eBird country list once we have a token so we can display
   // friendly names. Re-runs when the user enters/updates their token.
+  // We deliberately don't clear countryList when the token goes empty —
+  // keeping the last-known list lets names keep resolving while the user
+  // is in the middle of editing their token.
   useEffect(() => {
-    if (!ebirdToken) {
-      setCountryList([]);
-      return;
-    }
+    if (!ebirdToken) return;
     async function fetchCountries() {
       try {
         const res = await fetch(
@@ -141,11 +146,14 @@ function App() {
             },
           }
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn('eBird country list fetch failed:', res.status, res.statusText);
+          return;
+        }
         const json = await res.json();
         if (Array.isArray(json)) setCountryList(json);
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.warn('eBird country list fetch error:', err);
       }
     }
     fetchCountries();
@@ -182,6 +190,46 @@ function App() {
     }
     fetchRegions();
   }, [selectedCountry, ebirdToken]);
+
+  // Look up the selected country's bounding box from OpenStreetMap Nominatim
+  // so the map can fly to it (since eBird's country endpoint doesn't include
+  // coordinates). Free, no key required. Cached in memory per session.
+  const countryBoundsCacheRef = useRef<Map<string, { south: number; north: number; west: number; east: number }>>(new Map());
+  useEffect(() => {
+    if (!selectedCountry) {
+      setCountryBounds(null);
+      return;
+    }
+    const cached = countryBoundsCacheRef.current.get(selectedCountry);
+    if (cached) {
+      setCountryBounds(cached);
+      return;
+    }
+    async function fetchCountryBounds() {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?country=${selectedCountry}&format=json&limit=1`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        // bbox is [south, north, west, east] as strings.
+        const bbox = json?.[0]?.boundingbox;
+        if (!Array.isArray(bbox) || bbox.length !== 4) return;
+        const bounds = {
+          south: parseFloat(bbox[0]),
+          north: parseFloat(bbox[1]),
+          west: parseFloat(bbox[2]),
+          east: parseFloat(bbox[3]),
+        };
+        countryBoundsCacheRef.current.set(selectedCountry, bounds);
+        setCountryBounds(bounds);
+      } catch (err) {
+        console.warn('Country bounds lookup failed:', err);
+      }
+    }
+    fetchCountryBounds();
+  }, [selectedCountry]);
 
   function parseCSVText(name: string, text: string) {
     setFileName(name);
@@ -1175,6 +1223,7 @@ function App() {
           targetSpecies={selectedTargetSpecies}
           targetLocIds={targetLocIds}
           speciesLocIds={speciesLocs}
+          fallbackBounds={countryBounds}
         />
       </main>
     </div>
