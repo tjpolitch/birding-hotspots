@@ -194,25 +194,32 @@ function App() {
   // Look up the selected country's bounding box from OpenStreetMap Nominatim
   // so the map can fly to it (since eBird's country endpoint doesn't include
   // coordinates). Free, no key required. Cached in memory per session.
+  // A cancellation flag prevents a slow response for the previous country from
+  // overwriting bounds the user has since moved on from.
   const countryBoundsCacheRef = useRef<Map<string, { south: number; north: number; west: number; east: number }>>(new Map());
   useEffect(() => {
-    if (!selectedCountry) {
-      setCountryBounds(null);
-      return;
-    }
+    // Always clear first so stale bounds from a previous country don't
+    // linger while we fetch the new ones — this avoids "I picked Japan but
+    // it flew to Albania" (the prior fetch finishing late).
+    setCountryBounds(null);
+    if (!selectedCountry) return;
+
     const cached = countryBoundsCacheRef.current.get(selectedCountry);
     if (cached) {
       setCountryBounds(cached);
       return;
     }
+
+    let cancelled = false;
     async function fetchCountryBounds() {
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?country=${selectedCountry}&format=json&limit=1`,
           { headers: { 'Accept': 'application/json' } }
         );
-        if (!res.ok) return;
+        if (cancelled || !res.ok) return;
         const json = await res.json();
+        if (cancelled) return;
         // bbox is [south, north, west, east] as strings.
         const bbox = json?.[0]?.boundingbox;
         if (!Array.isArray(bbox) || bbox.length !== 4) return;
@@ -225,10 +232,11 @@ function App() {
         countryBoundsCacheRef.current.set(selectedCountry, bounds);
         setCountryBounds(bounds);
       } catch (err) {
-        console.warn('Country bounds lookup failed:', err);
+        if (!cancelled) console.warn('Country bounds lookup failed:', err);
       }
     }
     fetchCountryBounds();
+    return () => { cancelled = true; };
   }, [selectedCountry]);
 
   function parseCSVText(name: string, text: string) {
@@ -371,6 +379,10 @@ function App() {
       setSubnational2([]);
       return;
     }
+    // Clear any prior region's hotspots so the map can't briefly fly to the
+    // wrong bounds while the new region is loading.
+    setHotspots([]);
+    setSubnational2([]);
 
     async function fetchHotspots() {
       setIsLoadingHotspots(true);
@@ -774,6 +786,11 @@ function App() {
               setSelectedCountry(e.target.value);
               setSelectedRegion("");
               setSelectedSubregion("");
+              // Clear stale data synchronously so the next render can't briefly
+              // use the previous country's bounds or hotspots — that would
+              // cause FlyToBounds to lock onto the wrong location.
+              setCountryBounds(null);
+              setHotspots([]);
             }}
             disabled={!fileLoaded || (countries.visited.length + countries.unvisited.length) === 0}
           >
@@ -804,6 +821,9 @@ function App() {
             onChange={(e) => {
               setSelectedRegion(e.target.value);
               setSelectedSubregion("");
+              // Same reason as the country handler — drop stale hotspots so
+              // FlyToBounds can't lock onto the previous region's bounds.
+              setHotspots([]);
             }}
             disabled={!fileLoaded || (regions.visited.length + regions.unvisited.length) === 0}
           >
@@ -1223,7 +1243,7 @@ function App() {
           targetSpecies={selectedTargetSpecies}
           targetLocIds={targetLocIds}
           speciesLocIds={speciesLocs}
-          fallbackBounds={countryBounds}
+          fallbackBounds={selectedRegion ? null : countryBounds}
         />
       </main>
     </div>

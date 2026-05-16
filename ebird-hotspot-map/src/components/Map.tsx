@@ -244,15 +244,25 @@ function FlyToBounds({
   fallbackBounds?: { south: number; north: number; west: number; east: number } | null;
 }) {
   const map = useMap();
+  // Track both the key we last flew to AND whether the fly was "tight"
+  // (hotspot-derived) or "loose" (country-fallback). This lets us upgrade
+  // from a country fit to a hotspot fit when data arrives, but avoid
+  // re-flying once we've already shown the tight bounds for this key.
   const lastFlownKey = useRef<string>('');
+  const lastFlownTight = useRef<boolean>(false);
 
   useEffect(() => {
     if (!enabled) return;
-    if (flyKey === lastFlownKey.current) return;
+
+    const hasHotspots = !!hotspots && hotspots.length > 0;
+    const sameKey = flyKey === lastFlownKey.current;
+    // Skip if we already flew tight for this key, or if we flew loose and
+    // still don't have anything tighter to show.
+    if (sameKey && (lastFlownTight.current || !hasHotspots)) return;
 
     // Prefer hotspot bounds; otherwise fly to the country-level fallback if one
     // was provided (e.g. user picked a country but no region yet).
-    if (hotspots && hotspots.length > 0) {
+    if (hasHotspots) {
       const lats: number[] = [];
       const lngs: number[] = [];
       for (const h of hotspots) {
@@ -270,6 +280,7 @@ function FlyToBounds({
         );
         map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8, maxZoom: 13 });
         lastFlownKey.current = flyKey;
+        lastFlownTight.current = true;
         return;
       }
     }
@@ -281,6 +292,7 @@ function FlyToBounds({
       );
       map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8, maxZoom: 13 });
       lastFlownKey.current = flyKey;
+      lastFlownTight.current = false;
     }
   }, [flyKey, hotspots, enabled, map, fallbackBounds]);
 
