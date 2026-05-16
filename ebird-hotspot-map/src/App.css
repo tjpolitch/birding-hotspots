@@ -302,6 +302,19 @@
   gap: 10px;
 }
 
+/* Subtle section heading inside the Settings modal — used to visually group
+   related rows (e.g. "API keys" at the bottom). */
+.setting-group-heading {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 .setting-input {
   width: 100%;
   background: var(--surface-2);
@@ -600,6 +613,16 @@
 .legend-dot.partial { background: var(--info); }
 .legend-dot.unvisited { background: var(--danger); }
 .legend-dot.target { background: #f59e0b; }
+
+/* ---------- Sidebar footer attribution ---------- */
+.sidebar-footer {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
 
 /* ---------- Empty state ---------- */
 .empty-hint {

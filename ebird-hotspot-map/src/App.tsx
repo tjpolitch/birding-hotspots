@@ -6,6 +6,7 @@ import './App.css';
 const SETTINGS_KEY = 'ebird:settings';
 const STORED_CSV_KEY = 'ebird:lastCsv';
 const TOKEN_KEY = 'ebird:apiToken';
+const STADIA_KEY_KEY = 'ebird:stadiaApiKey';
 
 // Each user brings their own eBird API token. We read from localStorage and
 // fall back to VITE_EBIRD_TOKEN for local dev convenience, but production
@@ -16,6 +17,14 @@ function loadStoredToken(): string {
     if (stored) return stored;
   } catch { /* ignore */ }
   return (import.meta.env.VITE_EBIRD_TOKEN as string) ?? '';
+}
+
+function loadStoredStadiaKey(): string {
+  try {
+    const stored = localStorage.getItem(STADIA_KEY_KEY);
+    if (stored) return stored;
+  } catch { /* ignore */ }
+  return '';
 }
 
 type StoredSettings = {
@@ -52,6 +61,10 @@ function App() {
   const [targetMode, setTargetMode] = useState(initialSettings.targetMode ?? true);
   const [selectedTargetSpecies, setSelectedTargetSpecies] = useState("");
   const [ebirdToken, setEbirdToken] = useState(loadStoredToken);
+  // Stadia Maps API key — when set, we use their English-everywhere tiles
+  // instead of the default OpenStreetMap tiles (which serve labels in the
+  // local language of each region).
+  const [stadiaKey, setStadiaKey] = useState(loadStoredStadiaKey);
   // Bounding box for the currently selected country, fetched from OpenStreetMap
   // Nominatim so the map can fly there even before a region is picked.
   const [countryBounds, setCountryBounds] = useState<
@@ -112,6 +125,14 @@ function App() {
       else localStorage.removeItem(TOKEN_KEY);
     } catch { /* ignore */ }
   }, [ebirdToken]);
+
+  // Persist the Stadia API key to localStorage whenever it changes.
+  useEffect(() => {
+    try {
+      if (stadiaKey) localStorage.setItem(STADIA_KEY_KEY, stadiaKey);
+      else localStorage.removeItem(STADIA_KEY_KEY);
+    } catch { /* ignore */ }
+  }, [stadiaKey]);
 
   // Persist setting toggles whenever they change.
   useEffect(() => {
@@ -1050,6 +1071,11 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Footer attribution */}
+        <p className="sidebar-footer">
+          &copy; {new Date().getFullYear()} TJ Politch
+        </p>
       </aside>
 
       {/* Settings modal */}
@@ -1083,31 +1109,20 @@ function App() {
               </button>
             </div>
             <div className="modal-body">
-              <div className="setting-row setting-row-stack">
+              {/* Feature toggles first — the things users tweak most often. */}
+              <div className="setting-row">
                 <div>
-                  <div className="setting-title">eBird API token</div>
-                  <div className="setting-desc">
-                    Required to load hotspots and region data. Get a free token at{' '}
-                    <a
-                      href="https://ebird.org/api/keygen"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="setting-link"
-                    >
-                      ebird.org/api/keygen
-                    </a>
-                    . Stored locally in your browser — never sent anywhere except eBird.
-                  </div>
+                  <div className="setting-title">Target species mode</div>
+                  <div className="setting-desc">Pick a species you want to chase. The map highlights hotspots in scope where you've birded but haven't yet recorded it — likely places to try next.</div>
                 </div>
-                <input
-                  type="text"
-                  className="setting-input"
-                  placeholder="Paste your eBird API token"
-                  value={ebirdToken}
-                  onChange={(e) => setEbirdToken(e.target.value.trim())}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={targetMode}
+                    onChange={(e) => setTargetMode(e.target.checked)}
+                  />
+                  <span className="toggle-switch" />
+                </label>
               </div>
               <div className="setting-row">
                 <div>
@@ -1128,20 +1143,8 @@ function App() {
                   <span className="toggle-switch" />
                 </label>
               </div>
-              <div className="setting-row">
-                <div>
-                  <div className="setting-title">Target species mode</div>
-                  <div className="setting-desc">Pick a species you want to chase. The map highlights hotspots in scope where you've birded but haven't yet recorded it — likely places to try next.</div>
-                </div>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={targetMode}
-                    onChange={(e) => setTargetMode(e.target.checked)}
-                  />
-                  <span className="toggle-switch" />
-                </label>
-              </div>
+
+              {/* Behavior preferences. */}
               <div className="setting-row">
                 <div>
                   <div className="setting-title">Auto-pan to selection</div>
@@ -1181,6 +1184,63 @@ function App() {
                   />
                   <span className="toggle-switch" />
                 </label>
+              </div>
+
+              {/* API keys live at the bottom — set them once and forget. */}
+              <div className="setting-group-heading">API keys</div>
+              <div className="setting-row setting-row-stack">
+                <div>
+                  <div className="setting-title">eBird API token</div>
+                  <div className="setting-desc">
+                    Required to load hotspots and region data. Get a free token at{' '}
+                    <a
+                      href="https://ebird.org/api/keygen"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="setting-link"
+                    >
+                      ebird.org/api/keygen
+                    </a>
+                    . Stored locally in your browser — never sent anywhere except eBird.
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  className="setting-input"
+                  placeholder="Paste your eBird API token"
+                  value={ebirdToken}
+                  onChange={(e) => setEbirdToken(e.target.value.trim())}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="setting-row setting-row-stack">
+                <div>
+                  <div className="setting-title">Stadia Maps API key (optional)</div>
+                  <div className="setting-desc">
+                    Switches the map tiles to English-everywhere labels (e.g. so
+                    Japan shows romanized place names instead of kanji). Get a
+                    free key at{' '}
+                    <a
+                      href="https://client.stadiamaps.com/signup/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="setting-link"
+                    >
+                      client.stadiamaps.com/signup
+                    </a>
+                    . Leave blank to keep the default tiles (local language).
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  className="setting-input"
+                  placeholder="Paste your Stadia Maps API key"
+                  value={stadiaKey}
+                  onChange={(e) => setStadiaKey(e.target.value.trim())}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
               </div>
             </div>
           </div>
@@ -1248,6 +1308,7 @@ function App() {
           targetLocIds={targetLocIds}
           speciesLocIds={speciesLocs}
           fallbackBounds={selectedRegion ? null : countryBounds}
+          stadiaKey={stadiaKey}
         />
       </main>
     </div>

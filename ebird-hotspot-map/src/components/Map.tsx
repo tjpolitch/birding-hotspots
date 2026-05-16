@@ -41,16 +41,6 @@ const targetIcon = L.divIcon({
   popupAnchor: [0, -9],
 });
 
-// Dimmed "never visited" marker for target mode — pushes attention onto the
-// amber target markers.
-const mutedIcon = L.divIcon({
-  className: 'hotspot-marker muted',
-  html: '',
-  iconSize: [12, 12],
-  iconAnchor: [6, 6],
-  popupAnchor: [0, -7],
-});
-
 // 🧠 Custom cluster colouring
 // In target mode: a cluster containing any target marker is highlighted amber;
 // otherwise behaves like the normal visited/partial/unvisited variants.
@@ -339,6 +329,7 @@ type Props = {
   targetLocIds?: Set<string>;
   speciesLocIds?: Set<string>;
   fallbackBounds?: { south: number; north: number; west: number; east: number } | null;
+  stadiaKey?: string;
 };
 
 export default function HotspotMap({
@@ -356,7 +347,17 @@ export default function HotspotMap({
   targetLocIds = new Set(),
   speciesLocIds = new Set(),
   fallbackBounds = null,
+  stadiaKey = '',
 }: Props) {
+  // Pick the tile layer. Stadia Maps gives English-everywhere labels via the
+  // `&lang=en` query param; fall back to plain OSM (local-language labels)
+  // when no key is provided.
+  const tileUrl = stadiaKey
+    ? `https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${encodeURIComponent(stadiaKey)}&lang=en`
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = stadiaKey
+    ? '&copy; <a href="https://www.stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://www.openmaptiles.org/">OpenMapTiles</a> &copy; OpenStreetMap'
+    : '&copy; OpenStreetMap';
   return (
     <MapContainer
       center={[-35.28, 149.13]}
@@ -364,9 +365,12 @@ export default function HotspotMap({
       style={{ height: '100%', width: '100%' }}
       className={isPickingOnMap ? 'picking-on-map' : ''}
     >
+      {/* key forces Leaflet to swap the tile source when the user adds or
+          removes their Stadia key — otherwise the URL change isn't picked up. */}
       <TileLayer
-        attribution="&copy; OpenStreetMap"
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={stadiaKey ? 'stadia' : 'osm'}
+        attribution={tileAttribution}
+        url={tileUrl}
       />
 
       <MarkerClusterGroup
