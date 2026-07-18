@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+// Zoom level at which clustering turns off (see disableClusteringAtZoom).
+// Also the threshold past which the app loads viewport hotspots across
+// region borders.
+export const CLUSTER_OFF_ZOOM = 12;
+
 // Marker rendered at the user's search point (geolocated or clicked).
 const searchPointIcon = L.divIcon({
   className: 'search-point-marker',
@@ -289,6 +294,32 @@ function FlyToBounds({
   return null;
 }
 
+// Reports the map viewport (center, zoom, half-diagonal radius in km) to the
+// parent after every pan/zoom. Drives the cross-border "viewport hotspots"
+// fetch when the user is zoomed in past the clustering threshold.
+export type Viewport = { lat: number; lng: number; zoom: number; radiusKm: number };
+
+function ViewportReporter({ onChange }: { onChange?: (v: Viewport) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!onChange) return;
+    const report = () => {
+      const c = map.getCenter();
+      // Center -> NE corner distance covers the whole visible area.
+      const radiusKm = c.distanceTo(map.getBounds().getNorthEast()) / 1000;
+      onChange({ lat: c.lat, lng: c.lng, zoom: map.getZoom(), radiusKm });
+    };
+    report();
+    map.on('moveend', report);
+    map.on('zoomend', report);
+    return () => {
+      map.off('moveend', report);
+      map.off('zoomend', report);
+    };
+  }, [map, onChange]);
+  return null;
+}
+
 // Captures map clicks while the user is in "pick on map" mode.
 function ClickCapture({ enabled, onPick }: { enabled: boolean; onPick: (lat: number, lng: number) => void }) {
   useMapEvents({
@@ -330,6 +361,11 @@ type Props = {
   speciesLocIds?: Set<string>;
   fallbackBounds?: { south: number; north: number; west: number; east: number } | null;
   stadiaKey?: string;
+  // Cross-border hotspots for the current viewport (already deduped against
+  // `hotspots` by the parent). Rendered as markers but excluded from
+  // FlyToBounds so they never affect auto-panning.
+  extraHotspots?: any[];
+  onViewportChange?: (v: Viewport) => void;
 };
 
 export default function HotspotMap({
@@ -348,7 +384,15 @@ export default function HotspotMap({
   speciesLocIds = new Set(),
   fallbackBounds = null,
   stadiaKey = '',
+  extraHotspots = [],
+  onViewportChange,
 }: Props) {
+  // Region hotspots + viewport extras for marker rendering. FlyToBounds
+  // deliberately keeps only the region hotspots.
+  const renderHotspots = useMemo(
+    () => (extraHotspots.length > 0 ? [...hotspots, ...extraHotspots] : hotspots),
+    [hotspots, extraHotspots]
+  );
   // Pick the tile layer. Stadia Maps gives English-everywhere labels via the
   // `&lang=en` query param; fall back to plain OSM (local-language labels)
   // when no key is provided.
@@ -386,11 +430,11 @@ export default function HotspotMap({
         chunkInterval={50}
         chunkDelay={20}
         removeOutsideVisibleBounds
-        disableClusteringAtZoom={12}
+        disableClusteringAtZoom={CLUSTER_OFF_ZOOM}
         iconCreateFunction={createClusterCustomIcon}
       >
         <AllMarkers
-          hotspots={hotspots}
+          hotspots={renderHotspots}
           visitedHotspots={visitedHotspots}
           userStatsByLoc={userStatsByLoc}
           targetMode={targetMode}
@@ -406,6 +450,8 @@ export default function HotspotMap({
         enabled={flyToEnabled}
         fallbackBounds={fallbackBounds}
       />
+
+      <ViewportReporter onChange={onViewportChange} />
 
       <ClickCapture enabled={isPickingOnMap} onPick={onMapClick} />
 

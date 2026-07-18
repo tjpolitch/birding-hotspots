@@ -1,10 +1,15 @@
 import Papa from 'papaparse';
-import { useState, useEffect, useMemo, useRef } from 'react';
-import HotspotMap from './components/Map';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { unzipSync } from 'fflate';
+import HotspotMap, { CLUSTER_OFF_ZOOM, type Viewport } from './components/Map';
+import { idbGet, idbSet, idbDel } from './lib/idb';
 import './App.css';
 
 const SETTINGS_KEY = 'ebird:settings';
+// Legacy localStorage key — data is migrated to IndexedDB on first load.
 const STORED_CSV_KEY = 'ebird:lastCsv';
+// IndexedDB key for the cached CSV ({ name, text, savedAt }).
+const IDB_CSV_KEY = 'lastCsv';
 const TOKEN_KEY = 'ebird:apiToken';
 const STADIA_KEY_KEY = 'ebird:stadiaApiKey';
 
@@ -27,6 +32,18 @@ function loadStoredStadiaKey(): string {
   return '';
 }
 
+// After this many days we nudge the user to grab a fresh export from eBird.
+const STALE_CSV_DAYS = 30;
+
+function formatDataAge(savedAt: number): string {
+  const days = Math.floor((Date.now() - savedAt) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return 'updated today';
+  if (days === 1) return 'updated yesterday';
+  if (days < 30) return `updated ${days} days ago`;
+  const months = Math.floor(days / 30);
+  return `updated ${months} month${months > 1 ? 's' : ''} ago`;
+}
+
 type StoredSettings = {
   showUnvisitedOnly?: boolean;
   autoPanToSelection?: boolean;
@@ -46,6 +63,9 @@ function App() {
   const initialSettings = loadStoredSettings();
 
   const [fileName, setFileName] = useState("");
+  // When the loaded CSV was originally uploaded (ms epoch) — drives the
+  // "data is N days old" hint so the user knows when to re-export from eBird.
+  const [csvSavedAt, setCsvSavedAt] = useState<number | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("");
@@ -79,6 +99,13 @@ function App() {
     return window.innerWidth > 768;
   });
   const [isDragging, setIsDragging] = useState(false);
+  // Current map viewport, reported by the map after every pan/zoom. When the
+  // user is zoomed in past the clustering threshold, we use it to load
+  // hotspots for the visible area regardless of the selected region — so
+  // e.g. viewing the ACT still shows markers just over the NSW border.
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  const [viewportHotspots, setViewportHotspots] = useState<any[]>([]);
+  const geoCacheRef = useRef<Map<string, any[]>>(new Map());
   const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [isPickingOnMap, setIsPickingOnMap] = useState(false);
   const [focusHotspot, setFocusHotspot] = useState<{ locId: string; lat: number; lng: number; nonce: number } | null>(null);
@@ -322,44 +349,90 @@ function App() {
     });
   }
 
-  function processFile(file: File) {
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      alert('Please upload a .csv file');
+  // Pull the CSV text out of an eBird "Download My Data" zip. eBird delivers
+  // ebird_<id>.zip containing MyEBirdData.csv — accepting the zip directly
+  // saves the user an unzip step.
+  function extractCsvFromZip(buffer: ArrayBuffer): { name: string; text: string } | null {
+    try {
+      const files = unzipSync(new Uint8Array(buffer));
+      const names = Object.keys(files).filter(n => n.toLowerCase().endsWith('.csv'));
+      if (names.length === 0) return null;
+      // Prefer the canonical eBird export name if present.
+      const name =
+        names.find(n => n.toLowerCase().includes('myebirddata')) ?? names[0];
+      return { name, text: new TextDecoder().decode(files[name]) };
+    } catch (err) {
+      console.warn('Zip extraction failed:', err);
+      return null;
+    }
+  }
+
+  async function processFile(file: File) {
+    const lower = file.name.toLowerCase();
+    let name = file.name;
+    let text: string;
+    if (lower.endsWith('.zip')) {
+      const extracted = extractCsvFromZip(await file.arrayBuffer());
+      if (!extracted) {
+        alert('No CSV found inside that zip. Expected an eBird "Download My Data" export.');
+        return;
+      }
+      ({ name, text } = extracted);
+    } else if (lower.endsWith('.csv')) {
+      text = await file.text();
+    } else {
+      alert('Please upload your eBird export (.csv or the .zip eBird emails you).');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = (e.target?.result as string) ?? '';
-      if (autoRestoreCSV) {
-        try {
-          localStorage.setItem(STORED_CSV_KEY, JSON.stringify({ name: file.name, text }));
-        } catch {
-          console.warn('CSV too large to cache in local storage.');
-        }
+    const savedAt = Date.now();
+    setCsvSavedAt(savedAt);
+    if (autoRestoreCSV) {
+      try {
+        await idbSet(IDB_CSV_KEY, { name, text, savedAt });
+      } catch (err) {
+        console.warn('Could not cache CSV in IndexedDB:', err);
       }
-      parseCSVText(file.name, text);
-    };
-    reader.readAsText(file);
+    }
+    parseCSVText(name, text);
   }
 
   // On first mount, restore a previously-loaded CSV if the setting is enabled.
+  // Reads from IndexedDB, migrating any legacy localStorage copy on the way.
   // Empty deps + ref guard so this runs once per app load.
   const didRestoreRef = useRef(false);
   useEffect(() => {
     if (didRestoreRef.current) return;
     didRestoreRef.current = true;
     if (!autoRestoreCSV) return;
-    try {
-      const raw = localStorage.getItem(STORED_CSV_KEY);
-      if (!raw) return;
-      const { name, text } = JSON.parse(raw);
-      if (name && text) parseCSVText(name, text);
-    } catch { /* ignore */ }
+    (async () => {
+      try {
+        let stored = await idbGet<{ name: string; text: string; savedAt?: number }>(IDB_CSV_KEY);
+        // Migrate the old localStorage cache to IndexedDB, then drop it.
+        if (!stored) {
+          try {
+            const raw = localStorage.getItem(STORED_CSV_KEY);
+            if (raw) {
+              const legacy = JSON.parse(raw);
+              if (legacy?.name && legacy?.text) {
+                stored = { name: legacy.name, text: legacy.text, savedAt: Date.now() };
+                await idbSet(IDB_CSV_KEY, stored);
+              }
+              localStorage.removeItem(STORED_CSV_KEY);
+            }
+          } catch { /* ignore legacy migration failures */ }
+        }
+        if (stored?.name && stored?.text) {
+          setCsvSavedAt(stored.savedAt ?? null);
+          parseCSVText(stored.name, stored.text);
+        }
+      } catch { /* ignore */ }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function clearStoredCSV() {
     try { localStorage.removeItem(STORED_CSV_KEY); } catch { /* ignore */ }
+    idbDel(IDB_CSV_KEY).catch(() => { /* ignore */ });
   }
 
   function handleFileUpload(event: any) {
@@ -460,6 +533,50 @@ function App() {
     }
     fetchSubnational2();
   }, [selectedRegion, ebirdToken]);
+
+  // 🔭 Viewport hotspot fetch — only when zoomed in past the clustering
+  // threshold. Debounced so panning doesn't hammer the API; results cached
+  // per rounded center+radius for the session.
+  useEffect(() => {
+    if (!ebirdToken || !viewport || viewport.zoom < CLUSTER_OFF_ZOOM) {
+      setViewportHotspots([]);
+      return;
+    }
+    // The geo endpoint caps dist at 50km; the viewport at these zooms is
+    // far smaller, but clamp defensively.
+    const dist = Math.min(50, Math.max(2, Math.ceil(viewport.radiusKm)));
+    const key = `${viewport.lat.toFixed(2)},${viewport.lng.toFixed(2)},${dist}`;
+    const cached = geoCacheRef.current.get(key);
+    if (cached) {
+      setViewportHotspots(cached);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.ebird.org/v2/ref/hotspot/geo?lat=${viewport.lat.toFixed(4)}&lng=${viewport.lng.toFixed(4)}&dist=${dist}&fmt=json`,
+          {
+            headers: {
+              "X-eBirdApiToken": ebirdToken,
+              "Accept": "application/json",
+            },
+          }
+        );
+        if (cancelled || !res.ok) return;
+        const json = await res.json();
+        if (cancelled || !Array.isArray(json)) return;
+        geoCacheRef.current.set(key, json);
+        setViewportHotspots(json);
+      } catch { /* ignore — extras are best-effort */ }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [viewport, ebirdToken]);
+
+  const handleViewportChange = useCallback((v: Viewport) => setViewport(v), []);
 
   // Dropdowns
   const countryNameByCode = useMemo(() => {
@@ -660,6 +777,30 @@ function App() {
     return hotspots.filter(h => h.subnational2Code === code);
   }, [hotspots, selectedSubregion, subregionNameToCode]);
 
+  // Every hotspot the user has ever visited, anywhere in the world. Used to
+  // colour viewport (cross-border) markers, which fall outside the scoped
+  // `visitedHotspots` set. Agrees with it on all in-scope hotspots.
+  const allVisitedLocIds = useMemo(
+    () => new Set<string>(
+      data
+        .map(r => r["Location ID"]?.trim())
+        .filter((id: string | undefined) => !!id && id.startsWith("L"))
+    ),
+    [data]
+  );
+
+  // Viewport hotspots not already shown via the region list, honouring the
+  // "only show unvisited" setting.
+  const extraDisplayHotspots = useMemo(() => {
+    if (viewportHotspots.length === 0) return [];
+    const shown = new Set(hotspotsInScope.map(h => h.locId));
+    let extras = viewportHotspots.filter(h => !shown.has(h.locId));
+    if (showUnvisitedOnly && !targetMode) {
+      extras = extras.filter(h => !allVisitedLocIds.has(h.locId));
+    }
+    return extras;
+  }, [viewportHotspots, hotspotsInScope, showUnvisitedOnly, targetMode, allVisitedLocIds]);
+
   // Completion (scoped to the current state/subregion selection)
   const visitedCount = hotspotsInScope.filter(h =>
     visitedHotspots.has(h.locId)
@@ -698,11 +839,18 @@ function App() {
       .sort((a, b) => (b.numSpeciesAllTime ?? 0) - (a.numSpeciesAllTime ?? 0));
   }, [selectedTargetSpecies, hotspotsInScope, visitedHotspots, speciesLocs]);
 
-  // Set form for fast Map lookups.
-  const targetLocIds = useMemo(
-    () => new Set(targetHotspotsList.map(h => h.locId)),
-    [targetHotspotsList]
-  );
+  // Set form for fast Map lookups. Also includes viewport (cross-border)
+  // hotspots the user has birded without recording the target species, so
+  // they get the amber "target" colouring too.
+  const targetLocIds = useMemo(() => {
+    const s = new Set(targetHotspotsList.map(h => h.locId));
+    if (selectedTargetSpecies) {
+      for (const h of extraDisplayHotspots) {
+        if (allVisitedLocIds.has(h.locId) && !speciesLocs.has(h.locId)) s.add(h.locId);
+      }
+    }
+    return s;
+  }, [targetHotspotsList, selectedTargetSpecies, extraDisplayHotspots, allVisitedLocIds, speciesLocs]);
 
   // # of in-scope hotspots where the user has recorded the target species —
   // drives the Stats box when target mode is on.
@@ -733,7 +881,7 @@ function App() {
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <p>Drop your eBird CSV to load it</p>
+            <p>Drop your eBird export (.csv or .zip) to load it</p>
           </div>
         </div>
       )}
@@ -771,7 +919,7 @@ function App() {
             ref={fileInputRef}
             id="file-input"
             type="file"
-            accept=".csv"
+            accept=".csv,.zip"
             className="file-input"
             onChange={handleFileUpload}
           />
@@ -782,7 +930,7 @@ function App() {
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
-              Upload eBird CSV
+              Upload eBird export (.csv/.zip)
             </label>
           ) : (
             <div className="file-loaded">
@@ -799,8 +947,37 @@ function App() {
               </button>
             </div>
           )}
+          {fileLoaded && csvSavedAt !== null && (
+            <p className={`data-age${Date.now() - csvSavedAt > STALE_CSV_DAYS * 24 * 60 * 60 * 1000 ? ' stale' : ''}`}>
+              {formatDataAge(csvSavedAt)}
+              {Date.now() - csvSavedAt > STALE_CSV_DAYS * 24 * 60 * 60 * 1000 && (
+                <>
+                  {' — '}
+                  <a
+                    href="https://ebird.org/downloadMyData"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="setting-link"
+                  >
+                    get a fresh export
+                  </a>
+                </>
+              )}
+            </p>
+          )}
           {!fileLoaded && (
-            <p className="empty-hint">Upload your eBird data export to begin.</p>
+            <p className="empty-hint">
+              Upload your eBird data export to begin — the .zip from{' '}
+              <a
+                href="https://ebird.org/downloadMyData"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="setting-link"
+              >
+                Download My Data
+              </a>{' '}
+              works as-is.
+            </p>
           )}
         </div>
 
@@ -1330,7 +1507,7 @@ function App() {
               ? hotspotsInScope.filter(h => !visitedHotspots.has(h.locId))
               : hotspotsInScope
           }
-          visitedHotspots={visitedHotspots}
+          visitedHotspots={allVisitedLocIds}
           userStatsByLoc={userStatsByLoc}
           flyToBoundsKey={`${selectedCountry}|${selectedRegion}|${selectedSubregion}`}
           flyToEnabled={autoPanToSelection}
@@ -1344,6 +1521,8 @@ function App() {
           speciesLocIds={speciesLocs}
           fallbackBounds={selectedRegion ? null : countryBounds}
           stadiaKey={stadiaKey}
+          extraHotspots={extraDisplayHotspots}
+          onViewportChange={handleViewportChange}
         />
       </main>
     </div>

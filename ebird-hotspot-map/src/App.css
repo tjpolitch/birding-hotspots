@@ -1068,3 +1068,15 @@
     top: 60px;
   }
 }
+
+/* ---------- CSV data age ---------- */
+.data-age {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 6px 0 0;
+}
+
+.data-age.stale {
+  color: var(--danger);
+  font-style: normal;
+}
